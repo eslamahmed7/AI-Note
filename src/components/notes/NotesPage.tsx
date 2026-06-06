@@ -206,7 +206,11 @@ export default function NotesPage({ filter = 'all', folderId, tagId }: NotesPage
       if (filter === 'deleted') {
         for (const id of selectedNoteIds) await permanentlyDeleteNote(id);
       } else {
-        for (const id of selectedNoteIds) await useNotesStore.getState().deleteNote(id);
+        if (effectiveFolderId) {
+          await useNotesStore.getState().moveNotes(Array.from(selectedNoteIds), null);
+        } else {
+          for (const id of selectedNoteIds) await useNotesStore.getState().deleteNote(id);
+        }
       }
       setSelectionMode(false);
       setSelectedNoteIds(new Set());

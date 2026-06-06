@@ -97,7 +97,12 @@ export default function NoteCard({ note, onOpen, viewMode, selectable, selected,
       : (isRTL ? 'هل أنت متأكد من نقل هذه الملاحظة إلى سلة المهملات؟' : 'Are you sure you want to move this note to trash?');
       
     if (window.confirm(confirmMessage)) {
-      deleteNote(note.id);
+      if (isInFolder) {
+        updateNote(note.id, { folder_id: null });
+        toast.success(isRTL ? 'تمت الإزالة من المجلد' : 'Removed from folder');
+      } else {
+        deleteNote(note.id);
+      }
     }
     setMenuOpen(false);
   };
@@ -173,11 +178,22 @@ export default function NoteCard({ note, onOpen, viewMode, selectable, selected,
           </p>
           <form onSubmit={handleUnlock}>
             <input
-              type="password"
-              placeholder={isRTL ? 'كلمة المرور' : 'Password'}
-              value={unlockPassword}
-              onChange={(e) => setUnlockPassword(e.target.value)}
-              className="input-field mb-4 w-full"
+                type="password"
+                placeholder={isRTL ? 'كلمة المرور' : 'Password'}
+                value={unlockPassword}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setUnlockPassword(val);
+                  if (val) {
+                    const hash = await hashPassword(val);
+                    if (hash === note.password_hash) {
+                      setShowUnlockModal(false);
+                      setUnlockPassword('');
+                      onOpen(note);
+                    }
+                  }
+                }}
+                className="input-field mb-4 w-full"
               autoFocus
               dir="ltr"
             />

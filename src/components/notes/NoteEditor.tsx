@@ -467,7 +467,12 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
       
     const confirmDelete = window.confirm(confirmMessage);
     if (confirmDelete) {
-      await deleteNote(note.id);
+      if (isInFolder) {
+        await updateNote(note.id, { folder_id: null });
+        toast.success(isRTL ? 'تمت الإزالة من المجلد' : 'Removed from folder');
+      } else {
+        await deleteNote(note.id);
+      }
       onClose();
     }
   };

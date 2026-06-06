@@ -317,7 +317,19 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
                 type="password"
                 placeholder={isRTL ? 'كلمة المرور' : 'Password'}
                 value={unlockPassword}
-                onChange={(e) => setUnlockPassword(e.target.value)}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  setUnlockPassword(val);
+                  const folder = folders.find(f => f.id === unlockFolderId);
+                  if (folder && val) {
+                    const hash = await hashPassword(val);
+                    if (hash === folder.password_hash) {
+                      setUnlockFolderId(null);
+                      setActiveFolderId(folder.id);
+                      onNavigate('notes');
+                    }
+                  }
+                }}
                 className="input-field mb-4"
                 autoFocus
                 dir="ltr"

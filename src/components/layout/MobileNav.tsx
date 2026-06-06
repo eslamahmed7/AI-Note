@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { t } from '../../lib/i18n';
-import { LayoutDashboard, StickyNote, CheckSquare, MessageSquare, Settings } from 'lucide-react';
+import { LayoutDashboard, StickyNote, CheckSquare, MessageSquare, Folder } from 'lucide-react';
 
 interface MobileNavProps {
   currentPage: string;
@@ -16,7 +16,7 @@ export default function MobileNav({ currentPage, onNavigate }: MobileNavProps) {
     { id: 'notes', icon: StickyNote, label: t('nav.notes', language) },
     { id: 'ai', icon: MessageSquare, label: t('nav.ai_chat', language) },
     { id: 'tasks', icon: CheckSquare, label: t('nav.tasks', language) },
-    { id: 'settings', icon: Settings, label: t('settings.title', language) },
+    { id: 'folders', icon: Folder, label: t('nav.folders', language) },
   ];
 
   return (
