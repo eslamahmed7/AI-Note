@@ -139,7 +139,8 @@ export default function AIChatPage() {
     });
 
     try {
-      const geminiApiKey = atob('QVEuQWI4Uk42S0pJNmlFMWJ4c1EwSWxSckxLeDVwOHNoY1lCaVU1VjVBSVNtVkprMF9aQkE=');
+      const userKey = useSettingsStore.getState().openai_api_key;
+      const geminiApiKey = userKey || atob('QVEuQWI4Uk42S0pJNmlFMWJ4c1EwSWxSckxLeDVwOHNoY1lCaVU1VjVBSVNtVkprMF9aQkE=');
       const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`;
 
       // Build contents array for Gemini (roles: user, model)
