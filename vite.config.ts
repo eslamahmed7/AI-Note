@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  base: './',
+  base: '/AI-Note/',
   plugins: [
     react(),
     VitePWA({
@@ -17,7 +17,8 @@ export default defineConfig({
         background_color: '#09090B',
         display: 'standalone',
         orientation: 'portrait-primary',
-        start_url: '/',
+        start_url: '/AI-Note/',
+        scope: '/AI-Note/',
         icons: [
           {
             src: 'icon-192.png',
