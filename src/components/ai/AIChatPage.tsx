@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useNotesStore } from '../../stores/notesStore';
+import { useTasksStore } from '../../stores/tasksStore';
 import { supabase } from '../../lib/supabase';
 import { t } from '../../lib/i18n';
 import type { AIChat, AIChatMessage } from '../../types';
@@ -150,12 +152,175 @@ export default function AIChatPage() {
         parts: [{ text: input }]
       });
 
+      const notes = useNotesStore.getState().notes;
+      const folders = useNotesStore.getState().folders;
+      const tags = useNotesStore.getState().tags;
+      const tasks = useTasksStore.getState().tasks;
+
+      const notesContext = notes.slice(0, 15).map(n => 
+        `- ID: "${n.id}", Title: "${n.title || 'Untitled'}", Type: "${n.note_type}", FolderID: "${n.folder_id || 'None'}", Pinned: ${n.is_pinned}, Archived: ${n.is_archived}, Content excerpt: "${n.content?.substring(0, 150) || ''}"`
+      ).join('\n');
+
+      const foldersContext = folders.map(f => `- ID: "${f.id}", Name: "${f.name}", Color: "${f.color}"`).join('\n');
+      const tagsContext = tags.map(t => `- ID: "${t.id}", Name: "${t.name}", Color: "${t.color}"`).join('\n');
+      const tasksContext = tasks.slice(0, 15).map(t => `- ID: "${t.id}", Title: "${t.title}", Status: "${t.status}", Priority: "${t.priority}"`).join('\n');
+
+      const tools = [
+        {
+          functionDeclarations: [
+            {
+              name: "create_note",
+              description: "Create a new note. You can optionally specify a folder_id if you want to place it in a folder.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  title: { type: "STRING", description: "Title of the note." },
+                  content: { type: "STRING", description: "Content of the note." },
+                  note_type: { type: "STRING", description: "Type of the note: 'text', 'checklist', or 'canvas'. Defaults to 'text'." },
+                  folder_id: { type: "STRING", description: "Optional folder ID to create the note inside." }
+                },
+                required: ["title", "content"]
+              }
+            },
+            {
+              name: "create_folder",
+              description: "Create a new folder to organize notes.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  name: { type: "STRING", description: "Name of the folder." },
+                  color: { type: "STRING", description: "Optional color hex code (e.g. '#3B82F6')." }
+                },
+                required: ["name"]
+              }
+            },
+            {
+              name: "create_tag",
+              description: "Create a new tag.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  name: { type: "STRING", description: "Name of the tag." },
+                  color: { type: "STRING", description: "Optional color hex code (e.g. '#10B981')." }
+                },
+                required: ["name"]
+              }
+            },
+            {
+              name: "create_task",
+              description: "Create a new task.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  title: { type: "STRING", description: "Title of the task." },
+                  description: { type: "STRING", description: "Optional description of the task." },
+                  priority: { type: "STRING", description: "Optional priority: 'low', 'medium', 'high', 'urgent'." }
+                },
+                required: ["title"]
+              }
+            },
+            {
+              name: "delete_note",
+              description: "Delete a note by its ID.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  id: { type: "STRING", description: "The ID of the note to delete." }
+                },
+                required: ["id"]
+              }
+            },
+            {
+              name: "delete_folder",
+              description: "Delete a folder by its ID.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  id: { type: "STRING", description: "The ID of the folder to delete." }
+                },
+                required: ["id"]
+              }
+            },
+            {
+              name: "delete_task",
+              description: "Delete a task by its ID.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  id: { type: "STRING", description: "The ID of the task to delete." }
+                },
+                required: ["id"]
+              }
+            },
+            {
+              name: "move_note_to_folder",
+              description: "Move a note to a specific folder. Use folder_id as null to remove it from all folders.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  note_id: { type: "STRING", description: "The ID of the note." },
+                  folder_id: { type: "STRING", description: "The ID of the target folder, or null to remove from folder." }
+                },
+                required: ["note_id"]
+              }
+            },
+            {
+              name: "pin_note",
+              description: "Pin or unpin a note.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  note_id: { type: "STRING", description: "The ID of the note." },
+                  is_pinned: { type: "BOOLEAN", description: "true to pin, false to unpin." }
+                },
+                required: ["note_id", "is_pinned"]
+              }
+            },
+            {
+              name: "archive_note",
+              description: "Archive or unarchive a note.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  note_id: { type: "STRING", description: "The ID of the note." },
+                  is_archived: { type: "BOOLEAN", description: "true to archive, false to unarchive." }
+                },
+                required: ["note_id", "is_archived"]
+              }
+            }
+          ]
+        }
+      ];
+
       const response = await fetch(geminiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify({
+          contents,
+          systemInstruction: {
+            parts: [{
+              text: `You are an intelligent assistant acting as the user's "Second Brain". You have full permissions to manage the website's data: creating, deleting, and modifying notes, tasks, folders, and tags using the tools provided.
+              
+Always respond in Arabic if the user asks in Arabic. Tell the user what action you performed after calling a tool.
+
+Current Website Data Context:
+--- Notes ---
+${notesContext || 'None'}
+
+--- Folders ---
+${foldersContext || 'None'}
+
+--- Tags ---
+${tagsContext || 'None'}
+
+--- Tasks ---
+${tasksContext || 'None'}`
+            }]
+          },
+          tools
+        }),
       });
 
       if (!response.ok) {
@@ -163,15 +328,109 @@ export default function AIChatPage() {
       }
 
       const result = await response.json();
-      const assistantText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const part = result.candidates?.[0]?.content?.parts?.[0];
+      const functionCall = part?.functionCall;
+      const assistantText = part?.text || '';
       const tokensUsed = result.usageMetadata?.totalTokenCount || 0;
+
+      let successMessage = '';
+      if (functionCall) {
+        const { name, args } = functionCall as { name: string; args: any };
+        
+        if (name === 'create_note') {
+          const newNote = await useNotesStore.getState().createNote({
+            title: args.title,
+            content: args.content,
+            note_type: args.note_type || 'text',
+            folder_id: args.folder_id || null,
+          });
+          if (newNote) {
+            successMessage = isRTL 
+              ? `✅ تم إنشاء الملاحظة بنجاح: "${args.title}"` 
+              : `✅ Note created successfully: "${args.title}"`;
+            toast.success(successMessage);
+          }
+        } else if (name === 'create_folder') {
+          const newFolder = await useNotesStore.getState().createFolder(
+            args.name,
+            null,
+            args.color || '#3B82F6'
+          );
+          if (newFolder) {
+            successMessage = isRTL 
+              ? `✅ تم إنشاء المجلد بنجاح: "${args.name}"` 
+              : `✅ Folder created successfully: "${args.name}"`;
+            toast.success(successMessage);
+          }
+        } else if (name === 'create_tag') {
+          const newTag = await useNotesStore.getState().createTag(
+            args.name,
+            args.color || '#10B981'
+          );
+          if (newTag) {
+            successMessage = isRTL 
+              ? `✅ تم إنشاء الوسم بنجاح: "${args.name}"` 
+              : `✅ Tag created successfully: "${args.name}"`;
+            toast.success(successMessage);
+          }
+        } else if (name === 'create_task') {
+          const newTask = await useTasksStore.getState().createTask({
+            title: args.title,
+            description: args.description || '',
+            priority: args.priority || 'medium',
+            status: 'todo'
+          });
+          if (newTask) {
+            successMessage = isRTL 
+              ? `✅ تمت إضافة المهمة بنجاح: "${args.title}"` 
+              : `✅ Task added successfully: "${args.title}"`;
+            toast.success(successMessage);
+          }
+        } else if (name === 'delete_note') {
+          await useNotesStore.getState().deleteNote(args.id);
+          successMessage = isRTL 
+            ? `🗑️ تم نقل الملاحظة إلى سلة المحذوفات.` 
+            : `🗑️ Note moved to trash.`;
+          toast.success(successMessage);
+        } else if (name === 'delete_folder') {
+          await useNotesStore.getState().deleteFolder(args.id);
+          successMessage = isRTL 
+            ? `🗑️ تم حذف المجلد بنجاح.` 
+            : `🗑️ Folder deleted successfully.`;
+          toast.success(successMessage);
+        } else if (name === 'delete_task') {
+          await useTasksStore.getState().deleteTask(args.id);
+          successMessage = isRTL 
+            ? `🗑️ تم حذف المهمة بنجاح.` 
+            : `🗑️ Task deleted successfully.`;
+          toast.success(successMessage);
+        } else if (name === 'move_note_to_folder') {
+          await useNotesStore.getState().moveNotes([args.note_id], args.folder_id);
+          successMessage = isRTL 
+            ? `📁 تم نقل الملاحظة بنجاح.` 
+            : `📁 Note moved successfully.`;
+          toast.success(successMessage);
+        } else if (name === 'pin_note') {
+          await useNotesStore.getState().updateNote(args.note_id, { is_pinned: args.is_pinned });
+          successMessage = isRTL 
+            ? (args.is_pinned ? `📌 تم تثبيت الملاحظة.` : `📍 تم إلغاء تثبيت الملاحظة.`)
+            : (args.is_pinned ? `📌 Note pinned.` : `📍 Note unpinned.`);
+          toast.success(successMessage);
+        } else if (name === 'archive_note') {
+          await useNotesStore.getState().updateNote(args.note_id, { is_archived: args.is_archived });
+          successMessage = isRTL 
+            ? (args.is_archived ? `📥 تم أرشفة الملاحظة.` : `📤 تم إلغاء أرشفة الملاحظة.`)
+            : (args.is_archived ? `📥 Note archived.` : `📤 Note unarchived.`);
+          toast.success(successMessage);
+        }
+      }
 
       const assistantMsg: AIChatMessage = {
         id: crypto.randomUUID(),
         chat_id: chat.id,
         user_id: user.id,
         role: 'assistant',
-        content: assistantText || (isRTL ? 'حدث خطأ في المعالجة' : 'Processing error'),
+        content: successMessage || assistantText || (isRTL ? 'حدث خطأ في المعالجة' : 'Processing error'),
         sources: null,
         tokens_used: tokensUsed,
         created_at: new Date().toISOString(),
