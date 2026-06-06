@@ -301,9 +301,14 @@ export default function AIChatPage() {
           contents,
           systemInstruction: {
             parts: [{
-              text: `You are an intelligent assistant acting as the user's "Second Brain". You have full permissions to manage the website's data: creating, deleting, and modifying notes, tasks, folders, and tags using the tools provided.
-              
-Always respond in Arabic if the user asks in Arabic. Tell the user what action you performed after calling a tool.
+              text: `You are an intelligent AI assistant acting as the user's "Second Brain". You are directly integrated into the app and have full permissions to manage the user's data.
+
+CRITICAL RULES:
+1. ALWAYS use the provided tools (functions) to create, delete, or modify notes, tasks, folders, and tags when the user requests an action.
+2. NEVER ask the user to copy and paste text to create a note. NEVER give them instructions on how to do it manually. YOU MUST DO IT FOR THEM using the tools.
+3. If the user asks you to analyze their notes, use the "Current Website Data Context" provided below. You have access to their personal notes.
+4. Always respond in Arabic if the user asks in Arabic.
+5. Keep your responses concise and friendly.
 
 Current Website Data Context:
 --- Notes ---
@@ -328,9 +333,12 @@ ${tasksContext || 'None'}`
       }
 
       const result = await response.json();
-      const part = result.candidates?.[0]?.content?.parts?.[0];
-      const functionCall = part?.functionCall;
-      const assistantText = part?.text || '';
+      const parts = result.candidates?.[0]?.content?.parts || [];
+      const functionCallPart = parts.find((p: any) => p.functionCall);
+      const textPart = parts.find((p: any) => p.text);
+      
+      const functionCall = functionCallPart?.functionCall;
+      const assistantText = textPart?.text || '';
       const tokensUsed = result.usageMetadata?.totalTokenCount || 0;
 
       let successMessage = '';
@@ -425,12 +433,20 @@ ${tasksContext || 'None'}`
         }
       }
 
+      let finalContent = assistantText;
+      if (successMessage) {
+         finalContent = finalContent ? `${successMessage}\n\n${finalContent}` : successMessage;
+      }
+      if (!finalContent) {
+         finalContent = isRTL ? 'تم التنفيذ.' : 'Done.';
+      }
+
       const assistantMsg: AIChatMessage = {
         id: crypto.randomUUID(),
         chat_id: chat.id,
         user_id: user.id,
         role: 'assistant',
-        content: successMessage || assistantText || (isRTL ? 'حدث خطأ في المعالجة' : 'Processing error'),
+        content: finalContent,
         sources: null,
         tokens_used: tokensUsed,
         created_at: new Date().toISOString(),
