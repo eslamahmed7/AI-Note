@@ -4,7 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { supabase } from '../../lib/supabase';
 import { t } from '../../lib/i18n';
 import {
-  Settings, Globe, Moon, Sun, Key, User, Database,
+  Settings, Globe, Moon, Sun, Key, User,
   Shield, Bell, Download, Upload, Save, Eye, EyeOff,
   ChevronRight, AlertCircle, CheckCircle, Trash2
 } from 'lucide-react';
@@ -12,27 +12,19 @@ import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
   const {
-    language, theme, openai_api_key, cloudinary_cloud_name,
-    cloudinary_api_key, cloudinary_api_secret,
-    setLanguage, setTheme, setOpenAIKey, setCloudinarySettings
+    language, theme,
+    setLanguage, setTheme
   } = useSettingsStore();
   const { user, profile, fetchProfile } = useAuthStore();
   const isRTL = language === 'ar';
 
   const [displayName, setDisplayName] = useState(profile?.display_name || '');
-  const [openaiKey, setOpenaiKey] = useState(openai_api_key);
-  const [cloudName, setCloudName] = useState(cloudinary_cloud_name);
-  const [cloudKey, setCloudKey] = useState(cloudinary_api_key);
-  const [cloudSecret, setCloudSecret] = useState(cloudinary_api_secret);
-  const [showKeys, setShowKeys] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('general');
 
   const sections = [
     { id: 'general', icon: Settings, label: isRTL ? 'عام' : 'General' },
     { id: 'profile', icon: User, label: t('settings.profile', language) },
-    { id: 'ai', icon: Key, label: isRTL ? 'الذكاء الاصطناعي' : 'AI & Keys' },
-    { id: 'media', icon: Database, label: isRTL ? 'الوسائط' : 'Media Storage' },
     { id: 'security', icon: Shield, label: t('settings.security', language) },
     { id: 'backup', icon: Download, label: t('settings.backup', language) },
   ];
@@ -54,15 +46,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSaveAI = () => {
-    setOpenAIKey(openaiKey);
-    toast.success(t('settings.saved', language));
-  };
 
-  const handleSaveCloudinary = () => {
-    setCloudinarySettings(cloudName, cloudKey, cloudSecret);
-    toast.success(t('settings.saved', language));
-  };
 
   const handleExportData = async () => {
     if (!user) return;
@@ -242,112 +226,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* AI Keys */}
-          {activeSection === 'ai' && (
-            <div className="space-y-4">
-              <h2 className="font-semibold text-neutral-200">{isRTL ? 'إعدادات الذكاء الاصطناعي' : 'AI Settings'}</h2>
 
-              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl p-3 text-xs">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>
-                  {isRTL
-                    ? 'يتم تخزين مفاتيح API محلياً في متصفحك فقط ولا يتم إرسالها إلى خوادمنا.'
-                    : 'API keys are stored locally in your browser only and never sent to our servers.'}
-                </span>
-              </div>
-
-              <div className="glass rounded-2xl p-4 space-y-4">
-                <div>
-                  <label className="text-xs text-neutral-500 mb-1.5 block">
-                    {t('settings.openai_key', language)}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showKeys ? 'text' : 'password'}
-                      value={openaiKey}
-                      onChange={(e) => setOpenaiKey(e.target.value)}
-                      placeholder="sk-..."
-                      className="input-field text-sm pr-10 ltr:pr-4 ltr:pl-10 font-mono"
-                      dir="ltr"
-                    />
-                    <button
-                      onClick={() => setShowKeys(!showKeys)}
-                      className="absolute top-3.5 left-3.5 ltr:left-auto ltr:right-3.5 text-neutral-500 hover:text-neutral-300"
-                    >
-                      {showKeys ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  {openaiKey && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <CheckCircle className="w-3 h-3 text-green-400" />
-                      <span className="text-xs text-green-400">
-                        {isRTL ? 'مفتاح محفوظ' : 'Key saved'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <button onClick={handleSaveAI} className="btn-primary w-full">
-                  {t('settings.save', language)}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Media (Cloudinary) */}
-          {activeSection === 'media' && (
-            <div className="space-y-4">
-              <h2 className="font-semibold text-neutral-200">{t('settings.cloudinary', language)}</h2>
-
-              <div className="glass rounded-2xl p-4 space-y-4">
-                <div>
-                  <label className="text-xs text-neutral-500 mb-1.5 block">Cloud Name</label>
-                  <input
-                    type="text"
-                    value={cloudName}
-                    onChange={(e) => setCloudName(e.target.value)}
-                    className="input-field text-sm"
-                    placeholder="your-cloud-name"
-                    dir="ltr"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-500 mb-1.5 block">API Key</label>
-                  <input
-                    type={showKeys ? 'text' : 'password'}
-                    value={cloudKey}
-                    onChange={(e) => setCloudKey(e.target.value)}
-                    className="input-field text-sm font-mono"
-                    dir="ltr"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-500 mb-1.5 block">API Secret</label>
-                  <input
-                    type={showKeys ? 'text' : 'password'}
-                    value={cloudSecret}
-                    onChange={(e) => setCloudSecret(e.target.value)}
-                    className="input-field text-sm font-mono"
-                    dir="ltr"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showKeys}
-                    onChange={(e) => setShowKeys(e.target.checked)}
-                    className="accent-primary-500"
-                  />
-                  <span className="text-xs text-neutral-400">{isRTL ? 'إظهار المفاتيح' : 'Show keys'}</span>
-                </label>
-
-                <button onClick={handleSaveCloudinary} className="btn-primary w-full">
-                  {t('settings.save', language)}
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Security */}
           {activeSection === 'security' && (

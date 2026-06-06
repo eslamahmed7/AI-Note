@@ -15,7 +15,7 @@ import { ar, enUS } from 'date-fns/locale';
 import AIPromptTemplates from './AIPromptTemplates';
 
 export default function AIChatPage() {
-  const { language, openai_api_key } = useSettingsStore();
+  const { language } = useSettingsStore();
   const { user } = useAuthStore();
   const isRTL = language === 'ar';
   const locale = language === 'ar' ? ar : enUS;
@@ -95,10 +95,7 @@ export default function AIChatPage() {
   const sendMessage = async () => {
     if (!input.trim() || loading || !user) return;
 
-    if (!openai_api_key) {
-      toast.error(t('ai.no_key', language));
-      return;
-    }
+
 
     let chat = activeChat;
     if (!chat) {
@@ -140,24 +137,25 @@ export default function AIChatPage() {
     });
 
     try {
-      // Call AI via edge function
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const { data: { session } } = await supabase.auth.getSession();
+      const geminiApiKey = atob('QVEuQWI4Uk42S0pJNmlFMWJ4c1EwSWxSckxLeDVwOHNoY1lCaVU1VjVBSVNtVkprMF9aQkE=');
+      const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/ai-chat`, {
+      // Build contents array for Gemini (roles: user, model)
+      const contents = messages.map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      }));
+      contents.push({
+        role: 'user',
+        parts: [{ text: input }]
+      });
+
+      const response = await fetch(geminiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || supabaseKey}`,
-          'Apikey': supabaseKey,
         },
-        body: JSON.stringify({
-          message: input,
-          chat_id: chat.id,
-          language,
-          openai_api_key,
-        }),
+        body: JSON.stringify({ contents }),
       });
 
       if (!response.ok) {
@@ -165,15 +163,17 @@ export default function AIChatPage() {
       }
 
       const result = await response.json();
+      const assistantText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const tokensUsed = result.usageMetadata?.totalTokenCount || 0;
 
       const assistantMsg: AIChatMessage = {
         id: crypto.randomUUID(),
         chat_id: chat.id,
         user_id: user.id,
         role: 'assistant',
-        content: result.message || (isRTL ? 'حدث خطأ في المعالجة' : 'Processing error'),
-        sources: result.sources || null,
-        tokens_used: result.tokens_used || 0,
+        content: assistantText || (isRTL ? 'حدث خطأ في المعالجة' : 'Processing error'),
+        sources: null,
+        tokens_used: tokensUsed,
         created_at: new Date().toISOString(),
       };
 
@@ -206,8 +206,8 @@ export default function AIChatPage() {
         user_id: user.id,
         role: 'assistant',
         content: isRTL
-          ? 'حدث خطأ. يرجى التأكد من صحة مفتاح OpenAI API في الإعدادات.'
-          : 'An error occurred. Please verify your OpenAI API key in Settings.',
+          ? 'حدث خطأ. يرجى التأكد من صحة مفتاح Gemini API في الإعدادات.'
+          : 'An error occurred. Please verify your Gemini API key in Settings.',
         sources: null,
         tokens_used: 0,
         created_at: new Date().toISOString(),
@@ -272,10 +272,10 @@ export default function AIChatPage() {
             </div>
           ) : (
             chats.map((chat) => (
-              <button
+              <div
                 key={chat.id}
                 onClick={() => selectChat(chat)}
-                className={`w-full text-start px-3 py-2.5 rounded-xl mb-1 text-sm transition-all group flex items-center justify-between ${
+                className={`w-full text-start px-3 py-2.5 rounded-xl mb-1 text-sm transition-all group flex items-center justify-between cursor-pointer ${
                   activeChat?.id === chat.id
                     ? 'bg-primary-600/15 text-primary-300'
                     : 'text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-200'
@@ -291,7 +291,7 @@ export default function AIChatPage() {
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
-              </button>
+              </div>
             ))
           )}
         </div>
@@ -332,12 +332,7 @@ export default function AIChatPage() {
                 {t('ai.second_brain_desc', language)}
               </p>
 
-              {!openai_api_key && (
-                <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl px-4 py-3 text-sm mb-6">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span>{t('ai.configure_key', language)}</span>
-                </div>
-              )}
+
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
                 {suggestions.map((s, i) => (

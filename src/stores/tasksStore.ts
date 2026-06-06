@@ -6,6 +6,8 @@ import { useAuthStore } from './authStore';
 interface TasksState {
   tasks: Task[];
   loading: boolean;
+  showSettingsModal: boolean;
+  setShowSettingsModal: (show: boolean) => void;
   fetchTasks: (opts?: { archived?: boolean }) => Promise<void>;
   createTask: (data: Partial<Task>) => Promise<Task | null>;
   updateTask: (id: string, data: Partial<Task>) => Promise<void>;
@@ -16,6 +18,8 @@ interface TasksState {
 export const useTasksStore = create<TasksState>((set, get) => ({
   tasks: [],
   loading: false,
+  showSettingsModal: false,
+  setShowSettingsModal: (show) => set({ showSettingsModal: show }),
 
   fetchTasks: async (opts = {}) => {
     set({ loading: true });

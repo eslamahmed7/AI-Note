@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { Folder, Trash2, Plus, ArrowLeft, ArrowRight, Smile } from 'lucide-react';
+import { Folder, Trash2, Plus, ArrowLeft, ArrowRight, Smile, Lock, Unlock } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { hashPassword } from '../../lib/crypto';
 
 interface FoldersPageProps {
   onNavigate: (page: 'dashboard' | 'notes' | 'ai' | 'tasks' | 'settings' | 'vault' | 'search' | 'pinned' | 'archive' | 'trash' | 'folders' | 'tags') => void;
@@ -32,8 +33,12 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedColor, setSelectedColor] = useState(presetColors[0]);
   const [selectedIcon, setSelectedIcon] = useState('📁');
+  const [password, setPassword] = useState('');
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  
+  const [unlockFolderId, setUnlockFolderId] = useState<string | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState('');
 
   const isRTL = language === 'ar';
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
@@ -47,12 +52,14 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
 
     setSubmitting(true);
     try {
-      const folderName = `${selectedIcon} ${newFolderName.trim()}`;
-      const folder = await createFolder(folderName, null, selectedColor);
+      const folderName = newFolderName.trim();
+      const pwdHash = password ? await hashPassword(password) : null;
+      const folder = await createFolder(folderName, null, selectedColor, selectedIcon, pwdHash);
       if (folder) {
         toast.success(isRTL ? 'تم إنشاء المجلد بنجاح' : 'Folder created successfully');
         setNewFolderName('');
         setSelectedIcon('📁');
+        setPassword('');
       } else {
         toast.error(isRTL ? 'فشل إنشاء المجلد' : 'Failed to create folder');
       }
@@ -77,9 +84,30 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
     }
   };
 
-  const handleFolderClick = (id: string) => {
-    setActiveFolderId(id);
-    onNavigate('notes');
+  const handleFolderClick = (folder: any) => {
+    if (folder.is_encrypted) {
+      setUnlockFolderId(folder.id);
+      setUnlockPassword('');
+    } else {
+      setActiveFolderId(folder.id);
+      onNavigate('notes');
+    }
+  };
+
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unlockFolderId) return;
+    const folder = folders.find(f => f.id === unlockFolderId);
+    if (!folder) return;
+    
+    const hash = await hashPassword(unlockPassword);
+    if (hash === folder.password_hash) {
+      setUnlockFolderId(null);
+      setActiveFolderId(folder.id);
+      onNavigate('notes');
+    } else {
+      toast.error(isRTL ? 'كلمة المرور غير صحيحة' : 'Incorrect password');
+    }
   };
 
   return (
@@ -174,6 +202,24 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
               </div>
             </div>
 
+            {/* Password */}
+            <div className="space-y-2">
+              <label className="text-xs text-neutral-500 block">
+                {isRTL ? 'كلمة المرور (اختياري لقفل المجلد):' : 'Password (optional to lock folder):'}
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 absolute top-3 start-3 text-neutral-500" />
+                <input
+                  type="password"
+                  placeholder={isRTL ? 'كلمة المرور...' : 'Password...'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input-field py-2.5 text-sm w-full ps-9"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
             {/* Preview */}
             <div className="flex items-center gap-3 p-3 bg-neutral-800/30 rounded-xl border border-neutral-700/30">
               <div
@@ -213,7 +259,7 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
               return (
                 <div
                   key={folder.id}
-                  onClick={() => handleFolderClick(folder.id)}
+                  onClick={() => handleFolderClick(folder)}
                   className="flex items-center justify-between p-4 bg-neutral-900/60 border border-neutral-800/40 rounded-2xl hover:border-neutral-700/60 hover:bg-neutral-900 transition-all cursor-pointer shadow-sm group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -221,10 +267,13 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
                       className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 transition-transform group-hover:scale-110"
                       style={{ backgroundColor: (folder.color || '#3b82f6') + '20', border: `1px solid ${folder.color || '#3b82f6'}40` }}
                     >
-                      {folder.name.match(/^(\p{Emoji})/u)?.[1] || '📁'}
+                      {folder.emoji || '📁'}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-neutral-200 truncate">{folder.name.replace(/^(\p{Emoji}\s*)/u, '')}</h3>
+                      <h3 className="text-sm font-semibold text-neutral-200 truncate flex items-center gap-2">
+                        {folder.name}
+                        {folder.is_encrypted && <Lock className="w-3 h-3 text-amber-500" />}
+                      </h3>
                       <p className="text-[11px] text-neutral-500">
                         {noteCount} {isRTL ? 'ملاحظة' : 'notes'}
                       </p>
@@ -251,6 +300,44 @@ export default function FoldersPage({ onNavigate }: FoldersPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Unlock Modal */}
+      {unlockFolderId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-scale-in">
+            <h3 className="text-lg font-bold text-neutral-100 mb-2 flex items-center gap-2">
+              <Lock className="w-5 h-5 text-primary-400" />
+              {isRTL ? 'مجلد محمي' : 'Locked Folder'}
+            </h3>
+            <p className="text-sm text-neutral-400 mb-6">
+              {isRTL ? 'أدخل كلمة المرور لفتح هذا المجلد.' : 'Enter password to unlock this folder.'}
+            </p>
+            <form onSubmit={handleUnlock}>
+              <input
+                type="password"
+                placeholder={isRTL ? 'كلمة المرور' : 'Password'}
+                value={unlockPassword}
+                onChange={(e) => setUnlockPassword(e.target.value)}
+                className="input-field mb-4"
+                autoFocus
+                dir="ltr"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setUnlockFolderId(null)}
+                  className="px-4 py-2 text-sm text-neutral-400 hover:text-neutral-200 transition-colors"
+                >
+                  {isRTL ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button type="submit" className="btn-primary py-2 px-6">
+                  {isRTL ? 'فتح' : 'Unlock'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

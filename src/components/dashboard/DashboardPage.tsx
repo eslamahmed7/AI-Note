@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { t } from '../../lib/i18n';
 import { Note } from '../../types';
 import {
-  StickyNote, CheckSquare, MessageSquare, HardDrive,
+  StickyNote, CheckSquare, MessageSquare, Folder,
   TrendingUp, Clock, Pin, Brain, Sparkles, Plus,
   ArrowRight, ArrowLeft, BarChart3, Activity
 } from 'lucide-react';
@@ -23,7 +23,6 @@ interface DashboardStats {
   tasks_count: number;
   tasks_done: number;
   files_count: number;
-  storage_used: number;
   chats_count: number;
   notes_by_type: Record<string, number>;
   activity: Array<{ date: string; count: number }>;
@@ -32,7 +31,7 @@ interface DashboardStats {
 export default function DashboardPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { language } = useSettingsStore();
   const { profile } = useAuthStore();
-  const { notes, fetchNotes } = useNotesStore();
+  const { notes, folders, fetchNotes, fetchFolders } = useNotesStore();
   const { tasks, fetchTasks } = useTasksStore();
   const isRTL = language === 'ar';
   const locale = language === 'ar' ? ar : enUS;
@@ -43,7 +42,6 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: strin
     tasks_count: 0,
     tasks_done: 0,
     files_count: 0,
-    storage_used: 0,
     chats_count: 0,
     notes_by_type: {},
     activity: [],
@@ -52,6 +50,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: strin
   useEffect(() => {
     fetchNotes();
     fetchTasks();
+    fetchFolders();
     loadStats();
   }, []);
 
@@ -89,18 +88,13 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: strin
       tasks_count: tasksRes.count || 0,
       tasks_done: tasksData.filter((t: Record<string, string>) => t.status === 'done').length,
       files_count: notesData.filter((n: Record<string, string>) => ['image', 'video', 'pdf', 'file'].includes(n.note_type)).length,
-      storage_used: profile?.storage_used || 0,
       chats_count: chatsRes.count || 0,
       notes_by_type: byType,
       activity,
     });
   };
 
-  const formatStorage = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  };
+
 
   const recentNotes = notes.slice(0, 5);
   const pendingTasks = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').slice(0, 5);
@@ -183,12 +177,12 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: strin
               page: 'ai',
             },
             {
-              label: t('dashboard.storage', language),
-              value: formatStorage(stats.storage_used),
-              icon: HardDrive,
-              color: 'text-orange-400',
-              bg: 'bg-orange-500/10 border-orange-500/20',
-              page: 'settings',
+              label: t('nav.folders', language),
+              value: folders.length,
+              icon: Folder,
+              color: 'text-amber-400',
+              bg: 'bg-amber-500/10 border-amber-500/20',
+              page: 'folders',
             },
           ].map((stat) => (
             <button

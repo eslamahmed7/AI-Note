@@ -21,3 +21,12 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Temporary/Backup files
+smart-notes-backup-*.json
+test-*.js
+test-gemini-models.js
+test-gemini.js
+test-sql.js
+supabase/.temp/
+

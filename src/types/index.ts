@@ -30,6 +30,9 @@ export interface Folder {
   name: string;
   color: string;
   icon: string;
+  emoji: string | null;
+  password_hash: string | null;
+  is_encrypted: boolean;
   position: number;
   is_pinned: boolean;
   created_at: string;
@@ -43,6 +46,9 @@ export interface Tag {
   user_id: string;
   name: string;
   color: string;
+  emoji: string | null;
+  password_hash: string | null;
+  is_encrypted: boolean;
   created_at: string;
   notes_count?: number;
 }
@@ -67,6 +73,7 @@ export interface Note {
   is_archived: boolean;
   is_deleted: boolean;
   is_encrypted: boolean;
+  password_hash: string | null;
   encrypted_content: string | null;
   color: string | null;
   cover_image: string | null;
@@ -89,7 +96,7 @@ export interface Task {
   note_id: string | null;
   folder_id: string | null;
   title: string;
-  description: string;
+  description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;

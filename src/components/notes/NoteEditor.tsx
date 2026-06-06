@@ -12,9 +12,10 @@ import {
   AlignCenter, AlignRight, AlignJustify, Undo, Redo,
   Search, Download, Printer, Maximize2, Minimize2, MoreVertical,
   Mic, Square, Video, Image as ImageIcon, FileUp, Volume2,
-  LayoutTemplate, Wind, Music, Pen, Calculator,
-  PanelLeft, PanelRight,
+  Music, Pen, Calculator, Lock, Unlock,
+  PanelLeft, PanelRight, Plus, Wind, LayoutTemplate,
 } from 'lucide-react';
+import { hashPassword } from '../../lib/crypto';
 import toast from 'react-hot-toast';
 import RelatedNotesSidebar from './RelatedNotesSidebar';
 import AIPromptTemplates from '../ai/AIPromptTemplates';
@@ -152,6 +153,10 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(true);
 
+  // Password Lock
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [notePassword, setNotePassword] = useState('');
+
   // Advanced Editor States
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isZenMode, setIsZenMode] = useState(false);
@@ -205,6 +210,32 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
   const [charCount, setCharCount] = useState(0);
   const [paragraphCount, setParagraphCount] = useState(0);
   const [sentenceCount, setSentenceCount] = useState(0);
+
+  // Mobile active tool category
+  const [activeCategory, setActiveCategory] = useState<'text' | 'paragraph' | 'insert' | 'tools' | null>(null);
+
+  const closeAllDropdowns = useCallback(() => {
+    setShowTextColor(false);
+    setShowBgColor(false);
+    setShowTablePicker(false);
+    setShowFontPicker(false);
+    setShowSizePicker(false);
+    setShowMoreActions(false);
+    setShowTagPicker(false);
+  }, []);
+
+  // Close all dropdown menus and active mobile category when clicking outside
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.dropdown-group')) {
+        closeAllDropdowns();
+        setActiveCategory(null);
+      }
+    };
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, [closeAllDropdowns]);
 
   // DOM Refs
   const editorRef = useRef<HTMLDivElement>(null);
@@ -429,12 +460,14 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
 
   const handleDeleteNote = async () => {
     if (!note) return;
-    const confirmDelete = window.confirm(
-      isRTL ? 'هل أنت متأكد من نقل هذه الملاحظة إلى سلة المهملات؟' : 'Are you sure you want to move this note to trash?'
-    );
+    const isInFolder = !!note.folder_id;
+    const confirmMessage = isInFolder
+      ? (isRTL ? 'هل أنت متأكد من إزالة هذه الملاحظة من المجلد؟' : 'Are you sure you want to remove this note from the folder?')
+      : (isRTL ? 'هل أنت متأكد من نقل هذه الملاحظة إلى سلة المهملات؟' : 'Are you sure you want to move this note to trash?');
+      
+    const confirmDelete = window.confirm(confirmMessage);
     if (confirmDelete) {
       await deleteNote(note.id);
-      toast.success(isRTL ? 'تم نقل الملاحظة إلى سلة المهملات' : 'Note moved to trash');
       onClose();
     }
   };
@@ -450,6 +483,15 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
     }
     setSelectedTags(newTags);
     await updateNote(note.id, { tags: newTags });
+  };
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!note) return;
+    const pwdHash = notePassword ? await hashPassword(notePassword) : null;
+    await updateNote(note.id, { password_hash: pwdHash, is_encrypted: !!pwdHash });
+    setShowLockModal(false);
+    toast.success(isRTL ? (pwdHash ? 'تم قفل الملاحظة بنجاح' : 'تم إزالة القفل') : (pwdHash ? 'Note locked successfully' : 'Lock removed'));
   };
 
   // Media File uploads (Base64)
@@ -751,7 +793,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
   if (!note) return null;
 
   return (
-    <div className={`flex flex-col h-full bg-neutral-950 dark:bg-neutral-950 animate-fade-in ${
+    <div className={`flex flex-col h-full bg-neutral-950 dark:bg-neutral-950 animate-fade-in max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:h-[100dvh] max-lg:w-screen ${
       isZenMode ? 'zen-mode' : (isFullscreen ? 'editor-fullscreen' : '')
     }`}>
       {/* Hidden Upload Inputs */}
@@ -813,7 +855,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
             </button>
 
             {/* Tag picker */}
-            <div className="relative">
+            <div className="relative dropdown-group">
             <button
               onClick={() => setShowTagPicker(!showTagPicker)}
               className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 bg-neutral-800/50 hover:bg-neutral-800 px-3 py-1.5 rounded-lg transition-colors"
@@ -876,6 +918,15 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
                 {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
 
+              {/* Lock Note */}
+              <button
+                onClick={() => setShowLockModal(true)}
+                className={`p-2 rounded-lg transition-colors ${note.is_encrypted ? 'text-amber-500 bg-amber-500/10' : 'text-neutral-600 hover:text-neutral-300 hover:bg-neutral-800'}`}
+                title={isRTL ? 'قفل الملاحظة' : 'Lock Note'}
+              >
+                {note.is_encrypted ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+              </button>
+
               {/* Print & Export */}
               <div className="relative group">
                 <button className="p-2 text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 rounded-lg transition-colors">
@@ -914,7 +965,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
             </div>
 
             {/* Mobile secondary actions (collapsed under a three-dots menu on mobile) */}
-            <div className="relative md:hidden">
+            <div className="relative md:hidden dropdown-group">
               <button
                 onClick={() => setShowMoreActions(!showMoreActions)}
                 className={`p-2 rounded-lg text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors ${
@@ -951,6 +1002,20 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
                   >
                     {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                     <span>{isRTL ? (isFullscreen ? 'تصغير الشاشة' : 'ملء الشاشة') : (isFullscreen ? 'Exit Fullscreen' : 'Fullscreen')}</span>
+                  </button>
+
+                  {/* Lock/Unlock */}
+                  <button
+                    onClick={() => {
+                      setShowLockModal(true);
+                      setShowMoreActions(false);
+                    }}
+                    className={`w-full text-right ltr:text-left px-3 py-2 hover:bg-neutral-800 rounded-lg text-xs flex items-center gap-2 ${
+                      note.is_encrypted ? 'text-amber-500 font-semibold' : 'text-neutral-300'
+                    }`}
+                  >
+                    {note.is_encrypted ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                    <span>{isRTL ? (note.is_encrypted ? 'تعديل كلمة المرور' : 'قفل الملاحظة') : (note.is_encrypted ? 'Edit Password' : 'Lock Note')}</span>
                   </button>
 
                   {/* Pin/Unpin */}
@@ -1016,7 +1081,11 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
                     className="w-full text-right ltr:text-left px-3 py-2 hover:bg-red-950/30 text-red-400 hover:text-red-300 rounded-lg text-xs flex items-center gap-2"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>{isRTL ? 'حذف الملاحظة' : 'Delete Note'}</span>
+                    <span>
+                      {isRTL
+                        ? (note.folder_id ? 'إزالة من المجلد' : 'حذف الملاحظة')
+                        : (note.folder_id ? 'Remove from Folder' : 'Delete Note')}
+                    </span>
                   </button>
                 </div>
               )}
@@ -1024,8 +1093,8 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
         </div>
       </div>
 
-      {/* Unified Mobile-Friendly Toolbar */}
-      <div className={`flex items-center gap-1.5 px-3 py-2 border-b border-neutral-800/40 flex-shrink-0 bg-neutral-900/40 select-none md:flex-wrap md:overflow-visible ${(showFontPicker || showSizePicker || showTextColor || showBgColor || showTablePicker) ? 'overflow-visible' : 'overflow-x-auto no-scrollbar'}`}>
+      {/* Unified Mobile-Friendly Toolbar (Desktop Mode) */}
+      <div className={`hidden md:flex items-center gap-1.5 px-3 py-2 border-b border-neutral-800/40 flex-shrink-0 bg-neutral-900/40 select-none md:flex-wrap md:overflow-visible ${(showFontPicker || showSizePicker || showTextColor || showBgColor || showTablePicker) ? 'overflow-visible' : ''}`}>
         
         {/* Group 1: السجل (History) */}
         <button onMouseDown={(e) => { e.preventDefault(); execFormat('undo'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors flex-shrink-0" title={isRTL ? 'تراجع' : 'Undo'}><Undo className="w-3.5 h-3.5" /></button>
@@ -1035,7 +1104,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
 
         {/* Group 2: الخط (Font) */}
         {/* Font Family Dropdown */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 dropdown-group">
           <button 
             onMouseDown={(e) => {
               e.preventDefault();
@@ -1071,7 +1140,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
         </div>
 
         {/* Font Size Dropdown */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 dropdown-group">
           <button 
             onMouseDown={(e) => {
               e.preventDefault();
@@ -1149,7 +1218,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
         <button onMouseDown={(e) => { e.preventDefault(); execFormat('superscript'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors flex-shrink-0" title={isRTL ? 'علوي' : 'Superscript'}><Superscript className="w-3.5 h-3.5" /></button>
 
         {/* Text color picker */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 dropdown-group">
           <button 
             onMouseDown={(e) => {
               e.preventDefault();
@@ -1201,7 +1270,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
         </div>
 
         {/* Text Highlight (background color) */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 dropdown-group">
           <button 
             onMouseDown={(e) => {
               e.preventDefault();
@@ -1299,7 +1368,7 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
 
         {/* Group 5: إدراج (Insert) */}
         {/* Table builder */}
-        <div className="relative flex-shrink-0">
+        <div className="relative flex-shrink-0 dropdown-group">
           <button 
             onMouseDown={(e) => {
               e.preventDefault();
@@ -1441,11 +1510,456 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
         {/* Search tool */}
         <button
           onClick={() => setShowSearch(!showSearch)}
-          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${showSearch ? 'text-primary-450 bg-primary-600/10' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'}`}
+          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${showSearch ? 'text-primary-455 bg-primary-600/10' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'}`}
           title={isRTL ? 'بحث واستبدال الكلمات' : 'Search & Replace'}
         >
           <Search className="w-3.5 h-3.5" />
         </button>
+      </div>
+
+      {/* Grouped Mobile Toolbar (Visible only on mobile) */}
+      <div className="md:hidden flex flex-col border-b border-neutral-800/40 bg-neutral-900/40 select-none flex-shrink-0 dropdown-group">
+        {/* Mobile Sub-Toolbar */}
+        {activeCategory && (
+          <div className="px-3 py-2 border-b border-neutral-800/30 bg-neutral-950/85 backdrop-blur-md animate-scale-in">
+            {activeCategory === 'text' && (
+              <div className="flex flex-col gap-2">
+                {/* Row 1: Font and Size Pickers */}
+                <div className="flex items-center gap-2">
+                  {/* Font Family Dropdown */}
+                  <div className="relative dropdown-group flex-1">
+                    <button 
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowFontPicker(!showFontPicker);
+                        setShowSizePicker(false);
+                        setShowTextColor(false);
+                        setShowBgColor(false);
+                        setShowTablePicker(false);
+                      }} 
+                      className="w-full text-xs text-neutral-300 hover:text-neutral-100 bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span className="truncate max-w-[120px]">{activeFont}</span>
+                      <span className="text-[8px] text-neutral-500">▼</span>
+                    </button>
+                    {showFontPicker && (
+                      <div className="absolute top-full mt-2 start-0 z-30 bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-2 min-w-[180px] max-h-48 overflow-y-auto custom-scrollbar animate-scale-in">
+                        {fonts.map((f) => (
+                          <button
+                            key={f.value}
+                            onMouseDown={(e) => { 
+                              e.preventDefault(); 
+                              execFormat('fontName', f.value); 
+                              setShowFontPicker(false); 
+                            }}
+                            className="w-full text-right ltr:text-left px-3 py-1.5 hover:bg-neutral-800 rounded-lg text-xs text-neutral-300"
+                            style={{ fontFamily: f.value }}
+                          >
+                            {f.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Font Size Dropdown */}
+                  <div className="relative dropdown-group flex-1">
+                    <button 
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowSizePicker(!showSizePicker);
+                        setShowFontPicker(false);
+                        setShowTextColor(false);
+                        setShowBgColor(false);
+                        setShowTablePicker(false);
+                      }} 
+                      className="w-full text-xs text-neutral-300 hover:text-neutral-100 bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span>{activeSize}</span>
+                      <span className="text-[8px] text-neutral-500">▼</span>
+                    </button>
+                    {showSizePicker && (
+                      <div className="absolute top-full mt-2 start-0 z-30 bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-3 min-w-[220px] animate-scale-in" onMouseDown={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.tagName !== 'INPUT') {
+                          e.preventDefault();
+                        }
+                      }}>
+                        <p className="text-[10px] text-neutral-500 mb-2 px-1">{isRTL ? `حجم الخط: ${customFontSize}px` : `Font Size: ${customFontSize}px`}</p>
+                        <div className="flex items-center gap-2 mb-2">
+                          <input 
+                            type="range" 
+                            min="6" max="100" 
+                            value={customFontSize}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomFontSize(val);
+                              handleCustomFontSize(val);
+                            }}
+                            className="flex-1 accent-primary-500 cursor-pointer"
+                          />
+                          <input 
+                            type="number" 
+                            min="6" max="100" 
+                            value={customFontSize}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomFontSize(val);
+                              handleCustomFontSize(val);
+                            }}
+                            className="w-12 bg-neutral-900 border border-neutral-800 rounded-md px-1.5 py-0.5 text-xs text-neutral-305 text-center font-semibold"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-neutral-850">
+                          {fontSizes.map((fs) => (
+                            <button
+                              key={fs.value}
+                              onMouseDown={(e) => { 
+                                e.preventDefault(); 
+                                execFormat('fontSize', fs.value); 
+                                setShowSizePicker(false); 
+                              }}
+                              className="w-full text-center py-1 hover:bg-neutral-800 rounded text-[10px] text-neutral-400"
+                            >
+                              {fs.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Row 2: Formatting Buttons */}
+                <div className="flex items-center justify-between bg-neutral-950/40 border border-neutral-800/60 px-2 py-1 rounded-xl">
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('bold'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'عريض' : 'Bold'}><Bold className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('italic'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'مائل' : 'Italic'}><Italic className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('underline'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'تسطير' : 'Underline'}><Underline className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('strikeThrough'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'شطب' : 'Strikethrough'}><Strikethrough className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('subscript'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'سفلي' : 'Subscript'}><Subscript className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('superscript'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'علوي' : 'Superscript'}><Superscript className="w-3.5 h-3.5" /></button>
+                  
+                  {/* Text Color Picker */}
+                  <div className="relative dropdown-group">
+                    <button 
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowTextColor(!showTextColor);
+                        setShowBgColor(false);
+                        setShowFontPicker(false);
+                        setShowSizePicker(false);
+                        setShowTablePicker(false);
+                      }} 
+                      className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 flex items-center gap-0.5 transition-colors" 
+                      title={isRTL ? 'لون النص' : 'Text Color'}
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                    </button>
+                    {showTextColor && (
+                      <div className="absolute top-full mt-2 end-0 z-30 bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-2.5 w-[220px] animate-scale-in flex flex-col gap-2">
+                        <div className="grid grid-cols-6 gap-1">
+                          {colors.slice(0, 18).map((c) => (
+                            <button
+                              key={c.value}
+                              onMouseDown={(e) => { 
+                                e.preventDefault(); 
+                                execFormat('foreColor', c.value); 
+                                setShowTextColor(false); 
+                              }}
+                              className="w-6 h-6 rounded-md border border-neutral-800 hover:scale-110 transition-transform shadow-md"
+                              style={{ backgroundColor: c.value }}
+                              title={c.name}
+                            />
+                          ))}
+                        </div>
+                        <div className="flex flex-col gap-1 pt-1.5 border-t border-neutral-800/60">
+                          <label className="text-[9px] text-neutral-500 px-1">{isRTL ? 'لون مخصص' : 'Custom'}</label>
+                          <input
+                            type="color"
+                            value={customTextColor}
+                            onChange={(e) => {
+                              setCustomTextColor(e.target.value);
+                              execFormat('foreColor', e.target.value);
+                            }}
+                            className="w-full h-6 cursor-pointer bg-transparent border-0"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Highlight Color Picker */}
+                  <div className="relative dropdown-group">
+                    <button 
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowBgColor(!showBgColor);
+                        setShowTextColor(false);
+                        setShowFontPicker(false);
+                        setShowSizePicker(false);
+                        setShowTablePicker(false);
+                      }} 
+                      className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 flex items-center gap-0.5 transition-colors" 
+                      title={isRTL ? 'لون التظليل' : 'Highlight Color'}
+                    >
+                      <Highlighter className="w-3.5 h-3.5" />
+                    </button>
+                    {showBgColor && (
+                      <div className="absolute top-full mt-2 end-0 z-30 bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-2.5 w-[220px] animate-scale-in flex flex-col gap-2">
+                        <div className="grid grid-cols-6 gap-1">
+                          {bgColors.slice(0, 12).map((c) => (
+                            <button
+                              key={c.value}
+                              onMouseDown={(e) => { 
+                                e.preventDefault(); 
+                                execFormat('hiliteColor', c.value); 
+                                setShowBgColor(false); 
+                              }}
+                              className="w-6 h-6 rounded-md border border-neutral-800 hover:scale-110 transition-transform flex items-center justify-center text-[9px] font-bold text-neutral-300 shadow-md"
+                              style={{ backgroundColor: c.value === 'transparent' ? '#27272a' : c.value }}
+                              title={c.name}
+                            >
+                              {c.value === 'transparent' && '✕'}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex flex-col gap-1 pt-1.5 border-t border-neutral-800/60">
+                          <label className="text-[9px] text-neutral-500 px-1">{isRTL ? 'تظليل مخصص' : 'Custom'}</label>
+                          <input
+                            type="color"
+                            value={customBgColor}
+                            onChange={(e) => {
+                              setCustomBgColor(e.target.value);
+                              execFormat('hiliteColor', e.target.value);
+                            }}
+                            className="w-full h-6 cursor-pointer bg-transparent border-0"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('removeFormat'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-500 hover:text-red-400 transition-colors" title={isRTL ? 'مسح التنسيق' : 'Clear Formatting'}><Trash2 className="w-3.5 h-3.5 text-neutral-650" /></button>
+                </div>
+              </div>
+            )}
+
+            {activeCategory === 'paragraph' && (
+              <div className="flex flex-col gap-2">
+                {/* Row 1: Alignment and Directions */}
+                <div className="flex justify-around bg-neutral-950/40 border border-neutral-800/60 p-1 rounded-xl">
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('justifyLeft'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'محاذاة لليسار' : 'Align Left'}><AlignLeft className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('justifyCenter'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'توسيط' : 'Center'}><AlignCenter className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('justifyRight'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'محاذاة لليمين' : 'Align Right'}><AlignRight className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('justifyFull'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'ضبط الهوامش' : 'Justify'}><AlignJustify className="w-3.5 h-3.5" /></button>
+                  
+                  <div className="w-px h-5 bg-neutral-800 self-center mx-1" />
+                  
+                  <button onClick={() => { if(editorRef.current) { editorRef.current.dir = 'ltr'; editorRef.current.style.direction = 'ltr'; handleContentInput(); }}} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-405 hover:text-neutral-200 transition-colors" title="LTR"><PanelLeft className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => { if(editorRef.current) { editorRef.current.dir = 'rtl'; editorRef.current.style.direction = 'rtl'; handleContentInput(); }}} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-405 hover:text-neutral-200 transition-colors" title="RTL"><PanelRight className="w-3.5 h-3.5" /></button>
+                </div>
+
+                {/* Row 2: Headings and lists */}
+                <div className="flex justify-between bg-neutral-950/40 border border-neutral-800/60 p-1 rounded-xl flex-wrap gap-1">
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('formatBlock', 'h1'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title="Heading 1"><Heading1 className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('formatBlock', 'h2'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title="Heading 2"><Heading2 className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('insertUnorderedList'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'قائمة نقطية' : 'Bullet List'}><List className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('insertOrderedList'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'قائمة مرقمة' : 'Numbered List'}><ListOrdered className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('insertHTML', '<ul><li><input type="checkbox" /> </li></ul>'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'قائمة مهام' : 'Checklist'}><CheckSquare className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('formatBlock', 'blockquote'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'اقتباس' : 'Blockquote'}><Quote className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('formatBlock', 'pre'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'كود برمجى' : 'Code Block'}><Code className="w-3.5 h-3.5" /></button>
+                  <button onMouseDown={(e) => { e.preventDefault(); execFormat('insertHorizontalRule'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'خط فاصل' : 'Divider'}><Minus className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            )}
+
+            {activeCategory === 'insert' && (
+              <div className="flex items-center justify-around bg-neutral-950/40 border border-neutral-800/60 p-1 rounded-xl">
+                {/* Table builder */}
+                <div className="relative dropdown-group">
+                  <button 
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setShowTablePicker(!showTablePicker);
+                      setShowFontPicker(false);
+                      setShowSizePicker(false);
+                      setShowTextColor(false);
+                      setShowBgColor(false);
+                    }} 
+                    className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" 
+                    title={isRTL ? 'جدول' : 'Table'}
+                  >
+                    <Table className="w-3.5 h-3.5" />
+                  </button>
+                  {showTablePicker && (
+                    <div 
+                      className="absolute top-full mt-2 start-0 z-30 bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-3 min-w-[200px] animate-scale-in"
+                      onMouseLeave={() => { setHoverRow(-1); setHoverCol(-1); }}
+                      onMouseDown={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.tagName !== 'INPUT') {
+                          e.preventDefault();
+                        }
+                      }}
+                    >
+                      <p className="text-xs text-neutral-400 mb-1.5 font-medium">{isRTL ? 'إدراج جدول:' : 'Insert Table:'} {hoverRow >= 0 ? `${hoverRow + 1}x${hoverCol + 1}` : ''}</p>
+                      <div className="grid grid-cols-5 gap-1 mb-2">
+                        {Array.from({ length: 5 }).map((_, r) => (
+                          <React.Fragment key={r}>
+                            {Array.from({ length: 5 }).map((_, c) => {
+                              const isActive = r <= hoverRow && c <= hoverCol;
+                              return (
+                                <div
+                                  key={c}
+                                  onMouseEnter={() => { setHoverRow(r); setHoverCol(c); }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    handleInsertTable(r + 1, c + 1);
+                                  }}
+                                  className={`w-3.5 h-3.5 border rounded-[2px] cursor-pointer transition-colors ${
+                                    isActive 
+                                      ? 'bg-primary-500/40 border-primary-500' 
+                                      : 'bg-neutral-800 border-neutral-700'
+                                  }`}
+                                />
+                              );
+                            })}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between border-t border-neutral-800/60 pt-2 gap-1">
+                        <div className="flex gap-1 items-center">
+                          <input type="number" min="1" max="15" value={tableRowsInput} onChange={e => setTableRowsInput(e.target.value)} className="w-8 bg-neutral-900 border border-neutral-800 rounded text-center text-[10px] text-neutral-350 outline-none" />
+                          <span className="text-neutral-500 text-[10px]">x</span>
+                          <input type="number" min="1" max="15" value={tableColsInput} onChange={e => setTableColsInput(e.target.value)} className="w-8 bg-neutral-900 border border-neutral-800 rounded text-center text-[10px] text-neutral-350 outline-none" />
+                        </div>
+                        <button
+                          onMouseDown={(e) => { e.preventDefault(); handleInsertTable(parseInt(tableRowsInput) || 3, parseInt(tableColsInput) || 3); }}
+                          className="px-2 py-1 bg-primary-600 text-[9px] rounded text-white font-medium"
+                        >
+                          {isRTL ? 'إدراج' : 'Insert'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Hyperlink */}
+                <button
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const url = prompt(isRTL ? 'أدخل رابط URL:' : 'Enter URL:');
+                    if (url) execFormat('createLink', url);
+                  }}
+                  className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors"
+                  title={isRTL ? 'رابط متشعب' : 'Insert Link'}
+                >
+                  <LinkIcon className="w-3.5 h-3.5" />
+                </button>
+
+                <button onClick={() => imageInputRef.current?.click()} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200" title={isRTL ? 'إدراج صورة' : 'Insert Image'}><ImageIcon className="w-3.5 h-3.5 text-pink-400" /></button>
+                <button onClick={() => videoInputRef.current?.click()} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200" title={isRTL ? 'إدراج فيديو' : 'Insert Video'}><Video className="w-3.5 h-3.5 text-red-400" /></button>
+                <button onClick={() => audioInputRef.current?.click()} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200" title={isRTL ? 'إدراج ملف صوتي' : 'Insert Audio'}><Volume2 className="w-3.5 h-3.5 text-green-400" /></button>
+                <button onClick={() => fileInputRef.current?.click()} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200" title={isRTL ? 'إرفاق ملف / PDF' : 'Attach File / PDF'}><FileUp className="w-3.5 h-3.5 text-orange-400" /></button>
+
+                {/* Recording */}
+                {isRecording ? (
+                  <button
+                    onClick={handleStopRecording}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-red-600 hover:bg-red-500 rounded-lg text-[9px] font-semibold text-white animate-pulse"
+                  >
+                    <Square className="w-2 h-2 fill-current" />
+                    <span>{formatDuration(recordingTime)}</span>
+                  </button>
+                ) : (
+                  <button onClick={handleStartRecording} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200" title={isRTL ? 'سجل صوتك' : 'Record Audio'}><Mic className="w-3.5 h-3.5 text-emerald-400" /></button>
+                )}
+
+                {/* Drawing */}
+                <button onClick={() => setShowDrawing(true)} className="p-1.5 hover:bg-neutral-800 rounded-lg text-purple-400/80 hover:text-purple-400" title={isRTL ? 'لوحة الرسم الحر' : 'Free Drawing Canvas'}><Pen className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+
+            {activeCategory === 'tools' && (
+              <div className="flex items-center justify-around bg-neutral-950/40 border border-neutral-800/60 p-1 rounded-xl">
+                <button onMouseDown={(e) => { e.preventDefault(); execFormat('undo'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'تراجع' : 'Undo'}><Undo className="w-3.5 h-3.5" /></button>
+                <button onMouseDown={(e) => { e.preventDefault(); execFormat('redo'); }} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-neutral-200 transition-colors" title={isRTL ? 'إعادة' : 'Redo'}><Redo className="w-3.5 h-3.5" /></button>
+                
+                <div className="w-px h-5 bg-neutral-800 self-center mx-1" />
+
+                {/* Calculator */}
+                <button
+                  onClick={() => { setShowFormula(!showFormula); setFormulaInput('='); setFormulaResult(''); }}
+                  className={`p-1.5 rounded-lg transition-colors ${showFormula ? 'text-green-400 bg-green-500/10' : 'text-neutral-400 hover:bg-neutral-800'}`}
+                  title={isRTL ? 'آلة حاسبة بالدوال (Excel)' : 'Formula Calculator'}
+                >
+                  <Calculator className="w-3.5 h-3.5" />
+                </button>
+
+                {/* AI Prompt Templates */}
+                <button onClick={() => setShowTemplates(true)} className="p-1.5 hover:bg-neutral-800 rounded-lg text-purple-500/70 hover:text-purple-400 transition-colors" title={isRTL ? 'قوالب الذكاء الاصطناعي' : 'AI Prompt Templates'}><LayoutTemplate className="w-3.5 h-3.5" /></button>
+
+                {/* Search & Replace */}
+                <button onClick={() => setShowSearch(!showSearch)} className={`p-1.5 rounded-lg transition-colors ${showSearch ? 'text-primary-400 bg-primary-600/10' : 'text-neutral-400 hover:bg-neutral-800'}`} title={isRTL ? 'بحث واستبدال الكلمات' : 'Search & Replace'}><Search className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mobile Toolbar Category Buttons */}
+        <div className="flex items-center justify-around py-1.5 bg-neutral-900 border-t border-neutral-850/60">
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setActiveCategory(activeCategory === 'text' ? null : 'text');
+            }}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all duration-200 ${
+              activeCategory === 'text' ? 'text-primary-400 bg-neutral-850/60' : 'text-neutral-500 hover:text-neutral-400'
+            }`}
+          >
+            <Bold className="w-4 h-4" />
+            <span className="text-[9px] font-medium">{isRTL ? 'تنسيق' : 'Format'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setActiveCategory(activeCategory === 'paragraph' ? null : 'paragraph');
+            }}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all duration-200 ${
+              activeCategory === 'paragraph' ? 'text-primary-400 bg-neutral-850/60' : 'text-neutral-500 hover:text-neutral-400'
+            }`}
+          >
+            <AlignLeft className="w-4 h-4" />
+            <span className="text-[9px] font-medium">{isRTL ? 'الفقرة' : 'Paragraph'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setActiveCategory(activeCategory === 'insert' ? null : 'insert');
+            }}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all duration-200 ${
+              activeCategory === 'insert' ? 'text-primary-400 bg-neutral-850/60' : 'text-neutral-500 hover:text-neutral-400'
+            }`}
+          >
+            <Plus className="w-4 h-4" />
+            <span className="text-[9px] font-medium">{isRTL ? 'إدراج' : 'Insert'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              closeAllDropdowns();
+              setActiveCategory(activeCategory === 'tools' ? null : 'tools');
+            }}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all duration-200 ${
+              activeCategory === 'tools' ? 'text-primary-400 bg-neutral-850/60' : 'text-neutral-500 hover:text-neutral-400'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span className="text-[9px] font-medium">{isRTL ? 'أدوات' : 'Tools'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Advanced Search & Replace Panel */}
@@ -1816,6 +2330,44 @@ export default function NoteEditor({ note, onClose, onAISummarize }: NoteEditorP
           }
         }}
       />
+      {/* Lock Note Modal */}
+      {showLockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-scale-in">
+            <h3 className="text-lg font-bold text-neutral-100 mb-2 flex items-center gap-2">
+              <Lock className="w-5 h-5 text-primary-400" />
+              {isRTL ? 'قفل الملاحظة' : 'Lock Note'}
+            </h3>
+            <p className="text-sm text-neutral-400 mb-6">
+              {isRTL ? 'أدخل كلمة مرور لقفل هذه الملاحظة، أو اترك الحقل فارغاً لإلغاء القفل.' : 'Enter a password to lock this note, or leave blank to unlock.'}
+            </p>
+            <form onSubmit={handleSetPassword}>
+              <input
+                type="password"
+                placeholder={isRTL ? 'كلمة المرور...' : 'Password...'}
+                value={notePassword}
+                onChange={(e) => setNotePassword(e.target.value)}
+                className="input-field mb-4 w-full"
+                autoFocus
+                dir="ltr"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowLockModal(false)}
+                  className="px-4 py-2 text-sm text-neutral-400 hover:text-neutral-200 transition-colors"
+                >
+                  {isRTL ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button type="submit" className="btn-primary py-2 px-6">
+                  {isRTL ? 'حفظ' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

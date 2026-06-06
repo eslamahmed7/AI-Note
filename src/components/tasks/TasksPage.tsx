@@ -7,11 +7,13 @@ import type { Task, TaskStatus, TaskPriority } from '../../types';
 import {
   Plus, CheckSquare, Clock, AlertCircle, Circle,
   CheckCircle2, XCircle, List, Columns, Trash2,
-  Calendar, Flag, ChevronDown, X, Edit3
+  Calendar, Flag, ChevronDown, X, Edit3, Bell
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ar, enUS } from 'date-fns/locale';
 import toast from 'react-hot-toast';
+import { playNotificationSound, requestNotificationPermission, startAlarmSound, stopAlarmSound, DEFAULT_ALARM_SETTINGS } from '../../lib/notifications';
+import type { AlarmSettings, AlarmTone } from '../../lib/notifications';
 
 const priorityConfig: Record<TaskPriority, { label: string; class: string; icon: React.ReactNode }> = {
   urgent: { label: 'عاجل', class: 'priority-urgent', icon: <AlertCircle className="w-3 h-3" /> },
@@ -30,7 +32,7 @@ const statusColumns: { status: TaskStatus; labelKey: string; color: string }[] =
 export default function TasksPage() {
   const { language } = useSettingsStore();
   const { user } = useAuthStore();
-  const { tasks, loading, fetchTasks, createTask, updateTask, deleteTask, completeTask } = useTasksStore();
+  const { tasks, loading, fetchTasks, createTask, updateTask, deleteTask, completeTask, setShowSettingsModal } = useTasksStore();
   const isRTL = language === 'ar';
   const locale = language === 'ar' ? ar : enUS;
 
@@ -40,6 +42,68 @@ export default function TasksPage() {
   const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('medium');
   const [newTaskDue, setNewTaskDue] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
+
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editPriority, setEditPriority] = useState<TaskPriority>('medium');
+  const [editDue, setEditDue] = useState('');
+
+  const formatToLocalDatetimeLocal = (dateString: string | null): string => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    const offset = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - offset * 60 * 1000);
+    return localDate.toISOString().slice(0, 16);
+  };
+
+  const handleOpenEdit = (task: Task) => {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditDescription(task.description || '');
+    setEditPriority(task.priority);
+    setEditDue(formatToLocalDatetimeLocal(task.due_date));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTask || !editTitle.trim()) return;
+    await updateTask(editingTask.id, {
+      title: editTitle,
+      description: editDescription || null,
+      priority: editPriority,
+      due_date: editDue ? new Date(editDue).toISOString() : null,
+    });
+    setEditingTask(null);
+    toast.success(isRTL ? 'تم تحديث المهمة' : 'Task updated');
+  };
+
+  const [permission, setPermission] = useState<NotificationPermission>(() => {
+    return 'Notification' in window ? Notification.permission : 'default';
+  });
+
+  const handleRemindersClick = async () => {
+    if (permission !== 'granted') {
+      const result = await requestNotificationPermission();
+      setPermission(result);
+      
+      let volume = 0.8;
+      try {
+        const stored = localStorage.getItem('smart_notes_alarm_settings');
+        if (stored) volume = JSON.parse(stored).volume;
+      } catch {}
+      
+      playNotificationSound(volume);
+      if (result === 'granted') {
+        toast.success(isRTL ? 'تم تفعيل التنبيهات وتشغيل صوت تجريبي!' : 'Notifications enabled & test chime played!');
+        setShowSettingsModal(true);
+      } else if (result === 'denied') {
+        toast.error(isRTL ? 'تم رفض إذن التنبيهات. يرجى تفعيلها من إعدادات المتصفح.' : 'Notifications permission denied. Please enable them in browser settings.');
+      }
+    } else {
+      setShowSettingsModal(true);
+    }
+  };
 
   useEffect(() => {
     fetchTasks();
@@ -55,7 +119,7 @@ export default function TasksPage() {
       user_id: user.id,
       title: newTaskTitle,
       priority: newTaskPriority,
-      due_date: newTaskDue || null,
+      due_date: newTaskDue ? new Date(newTaskDue).toISOString() : null,
       status: 'todo',
     });
     setNewTaskTitle('');
@@ -112,7 +176,7 @@ export default function TasksPage() {
             {task.due_date && (
               <span className={`flex items-center gap-1 text-xs ${isOverdue ? 'text-red-400' : 'text-neutral-600'}`}>
                 <Calendar className="w-3 h-3" />
-                {format(new Date(task.due_date), 'MMM d', { locale })}
+                {format(new Date(task.due_date), 'MMM d, h:mm a', { locale })}
               </span>
             )}
           </div>
@@ -121,8 +185,16 @@ export default function TasksPage() {
         {/* Actions */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
+            onClick={() => handleOpenEdit(task)}
+            className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors text-neutral-600 hover:text-primary-400"
+            title={isRTL ? 'تعديل المهمة' : 'Edit task'}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={() => deleteTask(task.id)}
             className="p-1.5 hover:bg-neutral-700 rounded-lg transition-colors text-neutral-600 hover:text-red-400"
+            title={isRTL ? 'حذف المهمة' : 'Delete task'}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -166,6 +238,24 @@ export default function TasksPage() {
             </button>
           ))}
         </div>
+
+        {/* Enable Reminders Button */}
+        <button
+          onClick={handleRemindersClick}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all flex-shrink-0 ${
+            permission === 'granted'
+              ? 'bg-green-500/10 text-green-400 border-green-500/30'
+              : 'bg-primary-600/10 text-primary-400 border-primary-500/30 hover:bg-primary-600/20'
+          }`}
+          title={isRTL ? 'إعدادات المنبه وتفعيل الإشعارات' : 'Alarm settings & enable notifications'}
+        >
+          <Bell className={`w-3.5 h-3.5 ${permission !== 'granted' ? 'animate-bounce' : ''}`} />
+          <span className="hidden sm:inline">
+            {permission === 'granted'
+              ? (isRTL ? 'إعدادات المنبه' : 'Alarm Settings')
+              : (isRTL ? 'تفعيل التنبيهات' : 'Enable Reminders')}
+          </span>
+        </button>
 
         {/* View mode */}
         <div className="flex bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex-shrink-0">
@@ -214,7 +304,7 @@ export default function TasksPage() {
 
               {/* Due date */}
               <input
-                type="date"
+                type="datetime-local"
                 value={newTaskDue}
                 onChange={(e) => setNewTaskDue(e.target.value)}
                 className="bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-xl px-3 py-2 text-xs focus:outline-none"
@@ -259,11 +349,11 @@ export default function TasksPage() {
           </div>
         ) : (
           /* Kanban view */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-4 gap-4 overflow-x-auto pb-4 snap-x hide-scrollbar">
             {statusColumns.map(({ status, labelKey, color }) => {
               const colTasks = tasks.filter((t) => t.status === status);
               return (
-                <div key={status} className="kanban-col">
+                <div key={status} className="kanban-col min-w-[85vw] sm:min-w-0 snap-center shrink-0 sm:shrink">
                   <div className="flex items-center justify-between mb-3">
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${color}`}>
                       {t(labelKey, language)}
@@ -276,18 +366,40 @@ export default function TasksPage() {
                     {colTasks.map((task) => (
                       <div
                         key={task.id}
-                        className="bg-neutral-900 border border-neutral-800/60 rounded-xl p-3 hover:border-neutral-700 transition-colors"
+                        className="bg-neutral-900 border border-neutral-800/60 rounded-xl p-3 hover:border-neutral-700 transition-colors group relative"
                       >
-                        <p className="text-xs text-neutral-300 mb-2">{task.title}</p>
+                        <p className="text-xs text-neutral-300 mb-1 pr-12">{task.title}</p>
+                        {task.description && (
+                          <p className="text-[10px] text-neutral-600 mb-2 truncate">{task.description}</p>
+                        )}
                         <div className="flex items-center justify-between">
-                          <span className={`tag-chip text-xs ${priorityConfig[task.priority].class}`}>
+                          <span className={`tag-chip text-[10px] px-1.5 py-0.5 ${priorityConfig[task.priority].class}`}>
                             {t(`tasks.priority.${task.priority}`, language)}
                           </span>
                           {task.due_date && (
-                            <span className="text-xs text-neutral-700">
-                              {format(new Date(task.due_date), 'MM/dd')}
+                            <span className="text-[10px] text-neutral-500 flex items-center gap-1">
+                              <Calendar className="w-2.5 h-2.5 flex-shrink-0" />
+                              <span>{format(new Date(task.due_date), 'MMM d, h:mm a', { locale })}</span>
                             </span>
                           )}
+                        </div>
+
+                        {/* Hover actions in Kanban card */}
+                        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-neutral-900 pl-1 rounded-lg">
+                          <button
+                            onClick={() => handleOpenEdit(task)}
+                            className="p-1 hover:bg-neutral-800 rounded text-neutral-600 hover:text-primary-400"
+                            title={isRTL ? 'تعديل المهمة' : 'Edit task'}
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="p-1 hover:bg-neutral-800 rounded text-neutral-600 hover:text-red-400"
+                            title={isRTL ? 'حذف المهمة' : 'Delete task'}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -307,6 +419,107 @@ export default function TasksPage() {
       >
         <Plus className="w-5 h-5" />
       </button>
+
+      {/* Edit Task Modal */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 w-full max-w-md text-right shadow-2xl animate-scale-in" style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
+            <div className="flex items-center justify-between mb-6 border-b border-neutral-800 pb-3">
+              <h3 className="text-base font-bold text-neutral-100 flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-primary-400" />
+                <span>{isRTL ? 'تعديل المهمة' : 'Edit Task'}</span>
+              </h3>
+              <button
+                onClick={() => setEditingTask(null)}
+                className="p-1 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-left" style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
+              {/* Task Title */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-neutral-400 font-medium text-right">
+                  {isRTL ? 'عنوان المهمة' : 'Task Title'}
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder={isRTL ? 'مثال: مراجعة الكود الجديد...' : 'e.g. Review code...'}
+                  className="input-field text-sm w-full"
+                  dir={isRTL ? 'rtl' : 'ltr'}
+                />
+              </div>
+
+              {/* Task Description */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-neutral-400 font-medium text-right">
+                  {isRTL ? 'الوصف' : 'Description'}
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder={isRTL ? 'اكتب تفاصيل إضافية للمهمة...' : 'Add details...'}
+                  rows={3}
+                  className="bg-neutral-850 border border-neutral-750 text-neutral-200 rounded-2xl p-3 text-xs focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/50 w-full resize-none"
+                  dir={isRTL ? 'rtl' : 'ltr'}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Priority */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-neutral-400 font-medium text-right">
+                    {isRTL ? 'الأولوية' : 'Priority'}
+                  </label>
+                  <select
+                    value={editPriority}
+                    onChange={(e) => setEditPriority(e.target.value as TaskPriority)}
+                    className="bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-xl px-3 py-2 text-xs focus:outline-none w-full"
+                    dir={isRTL ? 'rtl' : 'ltr'}
+                  >
+                    <option value="urgent">{isRTL ? 'عاجل' : 'Urgent'}</option>
+                    <option value="high">{isRTL ? 'عالي' : 'High'}</option>
+                    <option value="medium">{isRTL ? 'متوسط' : 'Medium'}</option>
+                    <option value="low">{isRTL ? 'منخفض' : 'Low'}</option>
+                  </select>
+                </div>
+
+                {/* Due Date & Time */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-neutral-400 font-medium text-right">
+                    {isRTL ? 'تاريخ ووقت الاستحقاق' : 'Due Date & Time'}
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={editDue}
+                    onChange={(e) => setEditDue(e.target.value)}
+                    className="bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-xl px-3 py-2 text-xs focus:outline-none w-full"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setEditingTask(null)}
+                className="btn-secondary text-xs px-4 py-2"
+              >
+                {isRTL ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!editTitle.trim()}
+                className="btn-primary text-xs px-4 py-2"
+              >
+                {isRTL ? 'حفظ التغيرات' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

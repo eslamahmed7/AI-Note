@@ -47,8 +47,8 @@ export default function TagsPage({ onNavigate }: TagsPageProps) {
 
     setSubmitting(true);
     try {
-      const tagName = `${selectedIcon} ${newTagName.trim()}`;
-      const tag = await createTag(tagName, selectedColor);
+      const tagName = newTagName.trim();
+      const tag = await createTag(tagName, selectedColor, selectedIcon);
       if (tag) {
         toast.success(isRTL ? 'تم إنشاء الوسم بنجاح' : 'Tag created successfully');
         setNewTagName('');
@@ -77,8 +77,8 @@ export default function TagsPage({ onNavigate }: TagsPageProps) {
     }
   };
 
-  const handleTagClick = (id: string) => {
-    setActiveTagId(id);
+  const handleTagClick = (tag: any) => {
+    setActiveTagId(tag.id);
     onNavigate('notes');
   };
 
@@ -199,20 +199,16 @@ export default function TagsPage({ onNavigate }: TagsPageProps) {
           </form>
         </div>
 
-        {/* Tags List */}
-        <div className="space-y-3">
           <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
             {isRTL ? 'الوسوم الحالية' : 'Current Tags'}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {tags.map((tag) => {
               const noteCount = notes.filter((n) => n.tags?.some((t) => t.id === tag.id) && !n.is_deleted && !n.is_archived).length;
-              const tagIcon = tag.name.match(/^(\p{Emoji})/u)?.[1] || '🏷️';
-              const tagNameClean = tag.name.replace(/^(\p{Emoji}\s*)/u, '');
               return (
                 <div
                   key={tag.id}
-                  onClick={() => handleTagClick(tag.id)}
+                  onClick={() => handleTagClick(tag)}
                   className="flex items-center justify-between p-4 bg-neutral-900/60 border border-neutral-800/40 rounded-2xl hover:border-neutral-700/60 hover:bg-neutral-900 transition-all cursor-pointer shadow-sm group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -220,10 +216,12 @@ export default function TagsPage({ onNavigate }: TagsPageProps) {
                       className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 transition-transform group-hover:scale-110"
                       style={{ backgroundColor: (tag.color || '#10b981') + '20', border: `1px solid ${tag.color || '#10b981'}40` }}
                     >
-                      {tagIcon}
+                      {tag.emoji || '🏷️'}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold truncate" style={{ color: tag.color }}>{tagNameClean}</h3>
+                      <h3 className="text-sm font-semibold truncate flex items-center gap-2" style={{ color: tag.color }}>
+                        {tag.name}
+                      </h3>
                       <p className="text-[11px] text-neutral-500">
                         {noteCount} {isRTL ? 'ملاحظة' : 'notes'}
                       </p>
@@ -249,7 +247,7 @@ export default function TagsPage({ onNavigate }: TagsPageProps) {
             )}
           </div>
         </div>
-      </div>
+
     </div>
   );
 }

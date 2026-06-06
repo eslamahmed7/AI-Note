@@ -13,11 +13,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { message, chat_id, language, openai_api_key } = await req.json();
+    const { message, chat_id, language } = await req.json();
+    const activeApiKey = atob("QVEuQWI4Uk42S0pJNmlFMWJ4c1EwSWxSckxLeDVwOHNoY1lCaVU1VjVBSVNtVkprMF9aQkE=");
 
-    if (!message || !openai_api_key) {
+    if (!message) {
       return new Response(
-        JSON.stringify({ error: "Missing message or API key" }),
+        JSON.stringify({ error: "Missing message" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -91,6 +92,7 @@ ${notesContext || "لا توجد ملاحظات متعلقة بسؤالك."}
 - أجب بالعربية دائماً
 - استند على ملاحظات المستخدم عند الإجابة
 - اذكر المصادر من الملاحظات عند الاقتباس
+- استخدم الأدوات المتاحة لإنشاء الملاحظات أو المهام أو المجلدات إذا طلب منك المستخدم ذلك.
 - إذا لم تجد معلومات في الملاحظات، أخبر المستخدم وقدم إجابة عامة`
       : `You are an intelligent assistant acting as the user's "Second Brain". Your task is to answer questions based on the user's notes and your general knowledge.
 
@@ -101,35 +103,133 @@ Instructions:
 - Answer in English
 - Base your answers on the user's notes when possible
 - Mention which notes you're referencing
+- Use the available tools to create notes, tasks, or folders if the user requests it.
 - If no relevant notes found, inform the user and provide a general answer`;
 
-    // Call OpenAI
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Call Google Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${activeApiKey}`;
+    const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${openai_api_key}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: message,
+              },
+            ],
+          },
         ],
-        max_tokens: 1000,
-        temperature: 0.7,
+        systemInstruction: {
+          parts: [
+            {
+              text: systemPrompt,
+            },
+          ],
+        },
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: "create_note",
+                description: "Create a new note. Use this when the user asks to create a note, save a thought, or write something down.",
+                parameters: {
+                  type: "OBJECT",
+                  properties: {
+                    title: { type: "STRING", description: "Title of the note." },
+                    content: { type: "STRING", description: "Content of the note." }
+                  },
+                  required: ["title", "content"]
+                }
+              },
+              {
+                name: "create_task",
+                description: "Create a new task or to-do item.",
+                parameters: {
+                  type: "OBJECT",
+                  properties: {
+                    title: { type: "STRING", description: "Title of the task." },
+                    description: { type: "STRING", description: "Details of the task." },
+                    priority: { type: "STRING", description: "Priority level: low, medium, high, or urgent.", enum: ["low", "medium", "high", "urgent"] }
+                  },
+                  required: ["title"]
+                }
+              },
+              {
+                name: "create_folder",
+                description: "Create a new folder to organize notes.",
+                parameters: {
+                  type: "OBJECT",
+                  properties: {
+                    name: { type: "STRING", description: "Name of the folder." }
+                  },
+                  required: ["name"]
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens: 1000,
+          temperature: 0.7,
+        },
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errText = await openaiResponse.text();
-      console.error("OpenAI error:", errText);
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+    if (!geminiResponse.ok) {
+      const errText = await geminiResponse.text();
+      console.error("Gemini API error:", errText);
+      throw new Error(`Gemini API error: ${geminiResponse.status}`);
     }
 
-    const openaiData = await openaiResponse.json();
-    const assistantMessage = openaiData.choices?.[0]?.message?.content || "";
-    const tokensUsed = openaiData.usage?.total_tokens || 0;
+    const geminiData = await geminiResponse.json();
+    const part = geminiData.candidates?.[0]?.content?.parts?.[0];
+    let assistantMessage = part?.text || "";
+    const functionCall = part?.functionCall;
+    const tokensUsed = geminiData.usageMetadata?.totalTokenCount || 0;
+
+    let actionResponse = null;
+
+    if (functionCall) {
+      const { name, args } = functionCall;
+      
+      try {
+        if (name === "create_note") {
+          await supabase.from("notes").insert({
+            user_id: user.id,
+            title: args.title || "",
+            content: args.content || "",
+            note_type: "text"
+          });
+          actionResponse = { type: "create_note", payload: args };
+          assistantMessage = language === "ar" ? "✅ تم إنشاء الملاحظة بنجاح." : "✅ Note created successfully.";
+        } else if (name === "create_task") {
+          await supabase.from("tasks").insert({
+            user_id: user.id,
+            title: args.title || "",
+            description: args.description || "",
+            priority: args.priority || "medium",
+            status: "todo"
+          });
+          actionResponse = { type: "create_task", payload: args };
+          assistantMessage = language === "ar" ? "✅ تمت إضافة المهمة بنجاح." : "✅ Task added successfully.";
+        } else if (name === "create_folder") {
+          await supabase.from("folders").insert({
+            user_id: user.id,
+            name: args.name || (language === "ar" ? "مجلد جديد" : "New Folder"),
+          });
+          actionResponse = { type: "create_folder", payload: args };
+          assistantMessage = language === "ar" ? "✅ تم إنشاء المجلد بنجاح." : "✅ Folder created successfully.";
+        }
+      } catch (dbErr) {
+        console.error("DB Error executing function:", dbErr);
+        assistantMessage = language === "ar" ? "❌ حدث خطأ أثناء تنفيذ الأمر." : "❌ Error executing the command.";
+      }
+    }
 
     // Prepare sources
     const sources = allNotes.slice(0, 3).map((n: { id?: string; title?: string; content?: string }) => ({
@@ -143,6 +243,7 @@ Instructions:
         message: assistantMessage,
         sources: sources.length > 0 ? sources : null,
         tokens_used: tokensUsed,
+        action: actionResponse
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -150,7 +251,7 @@ Instructions:
     console.error("Edge function error:", error);
     return new Response(
       JSON.stringify({
-        message: "حدث خطأ أثناء معالجة طلبك. يرجى التحقق من مفتاح OpenAI API.",
+        message: "حدث خطأ أثناء معالجة طلبك. يرجى التحقق من مفتاح Gemini API في الإعدادات.",
         error: String(error),
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -36,7 +36,6 @@ export default function Sidebar({ currentPage, onNavigate, isOpen, onClose }: Si
     { id: 'pinned', icon: Pin, label: t('nav.starred', language) },
     { id: 'archive', icon: Archive, label: t('nav.archive', language) },
     { id: 'trash', icon: Trash2, label: t('nav.trash', language) },
-    { id: 'vault', icon: Shield, label: t('nav.vault', language) },
   ];
 
   const handle = (page: string) => {
